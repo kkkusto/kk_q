@@ -1,38 +1,48 @@
-import pandas as pd
-import sys
-if sys.version_info[0] < 3: 
-    from StringIO import StringIO
-else:
-    from io import StringIO
-# Create an example DataFrame for df
-example_data_1 = '''
-extracted_name
-val1/subscriptions/val2
-val3/subscriptions/val4
-'''
-df = pd.read_csv(StringIO(example_data_1))
-def extract_name(row):
-    source = row['source1'] if pd.notna(row['source1']) else row['source2']
-    if pd.notna(source) and 'name:' in source:
-        return source.split('name:')[1].split('|')[0]
-    return ''
+import cx_Oracle
 
-# Apply the function to the DataFrame
-df['extracted_name'] = df.apply(extract_name, axis=1)
-# Split the 'extracted_name' column
-df[['column1', 'column2']] = df['extracted_name'].str.split('/subscriptions/', expand=True)
-grouped_df = df.groupby('left_of_subscription').agg({'total': 'sum'}).reset_index()
+# Replace 'username', 'password', 'hostname', 'port', and 'service_name' with your actual database details
+username = 'your_username'
+password = 'your_password'
+dsn = 'hostname:port/service_name'
+port = 1521
+service_name = 'your_service_name'
 
-print(grouped_df)
-# Create an example DataFrame for new_df
-example_data_2 = '''
-new_col,data
-val1,100
-val3,200
-'''
-new_df = pd.read_csv(StringIO(example_data_2))
+# Construct the connection string
+dsn_tns = cx_Oracle.makedsn('hostname', port, service_name=service_name)
 
-# Merge the two DataFrames
-merged_df = pd.merge(grouped_df, new_df, left_on='column1', right_on='new_col', how='inner')
+# Establish the connection
+connection = cx_Oracle.connect(user=username, password=password, dsn=dsn_tns)
 
-print(merged_df)
+# Create a cursor
+cursor = connection.cursor()
+
+# Execute a query
+cursor.execute('SELECT * FROM your_table')
+
+# Fetch the results
+for row in cursor:
+    print(row)
+
+# Close the cursor and connection
+cursor.close()
+connection.close()
+
+
+import cx_Oracle
+
+# Assuming connection is already established
+# connection = cx_Oracle.connect(user, password, dsn)
+
+# Create a cursor
+cursor = connection.cursor()
+
+# Execute a query to get all tables accessible by the current user
+cursor.execute("SELECT table_name FROM ALL_TABLES")
+
+# Fetch and print the results
+print("Accessible Tables:")
+for row in cursor:
+    print(row[0])
+
+# Close the cursor
+cursor.close()
