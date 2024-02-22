@@ -1,77 +1,15 @@
-import pandas as pd
-import matplotlib.pyplot as plt
-import numpy as np
-
-# Simulating the DataFrame (replace this with reading from CSV)
-
-df = pd.DataFrame(data)
-df['Date'] = pd.to_datetime(df['Date']) # Converting the Date column to datetime
-
-
-# Plotting COUNT1 over time for each JOB
-plt.figure(figsize=(10, 6))
-for job in df['JOB'].unique():
-    df_job = df[df['JOB'] == job]
-    plt.plot(df_job['Date'], df_job['COUNT1'], label=job)
-
-plt.xlabel('Date')
-plt.ylabel('COUNT1')
-plt.title('COUNT1 Over Time by JOB')
-plt.legend()
-plt.show()
-
-
-# Sum of COUNT1 for each PID
-pid_counts = df.groupby('PID')['COUNT1'].sum()
-
-plt.figure(figsize=(8, 6))
-pid_counts.plot(kind='bar')
-plt.xlabel('PID')
-plt.ylabel('Sum of COUNT1')
-plt.title('Sum of COUNT1 for Each PID')
-plt.xticks(rotation=45)
-plt.show()
-
-
-plt.figure(figsize=(8, 6))
-df.boxplot(column='COUNT1', by='JOB')
-plt.title('Distribution of COUNT1 by JOB')
-plt.suptitle('') # Remove the automatic 'Boxplot grouped by JOB' title
-plt.xlabel('JOB')
-plt.ylabel('COUNT1')
-plt.show()
-
-
-import streamlit as st
-import pandas as pd
-import matplotlib.pyplot as plt
-
-# Load the data
-@st.cache
-def load_data():
-    data = pd.read_csv('data.csv')
-    data['Date'] = pd.to_datetime(data['Date'])  # Ensure the Date column is treated as dates
-    return data
-
-data = load_data()
-
-# Title for the Streamlit app
-st.title('Job Count Visualization')
-
-# Sidebar for user input to select a JOB
-job_list = data['JOB'].unique()
-selected_job = st.sidebar.selectbox('Select a JOB to visualize', job_list)
-
-# Filter data based on selected JOB
 filtered_data = data[data['JOB'] == selected_job]
 
+# Convert Date to just date (no time) if it includes time
+filtered_data['Date'] = filtered_data['Date'].dt.date
+
 # Plotting
-fig, ax = plt.subplots()
-ax.plot(filtered_data['Date'], filtered_data['COUNT1'], marker='o', linestyle='-')
-ax.set_title(f'Count over Time for {selected_job}')
-ax.set_xlabel('Date')
-ax.set_ylabel('Count')
+plt.figure(figsize=(10, 6))
+sns.boxplot(x='Date', y='COUNT1', data=filtered_data)
 plt.xticks(rotation=45)  # Rotate date labels for better readability
+plt.title(f'Count Distribution per Date for {selected_job}')
+plt.xlabel('Date')
+plt.ylabel('Count')
 
 # Show the plot in the Streamlit app
-st.pyplot(fig)
+st.pyplot(plt)
