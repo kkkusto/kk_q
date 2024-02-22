@@ -1,10 +1,55 @@
+import streamlit as st
+import pandas as pd
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+# Load the data
+@st.cache
+def load_data():
+    data = pd.read_csv('data.csv')
+    return data
+
+data = load_data()
+
+# Title for the Streamlit app
+st.title('JOB vs DURATION Scatter Plot')
+
 # Plotting
-plt.figure(figsize=(12, 6))
-sns.barplot(x='Date', y='COUNT1', hue='LABEL1', data=data, palette='viridis', ci=None)
+plt.figure(figsize=(10, 6))
+sns.scatterplot(x='JOB', y='DURATION', data=data)
 plt.xticks(rotation=45)
-plt.title('COUNT1 per LABEL1 for Each Date')
-plt.xlabel('Date')
-plt.ylabel('COUNT1')
+plt.title('JOB vs DURATION')
+plt.xlabel('JOB')
+plt.ylabel('DURATION')
+
+# Show the plot in the Streamlit app
+st.pyplot(plt)
+import streamlit as st
+import pandas as pd
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+# Load the data
+@st.cache
+def load_data():
+    data = pd.read_csv('data.csv')
+    return data
+
+data = load_data()
+
+# Title for the Streamlit app
+st.title('Average DURATION per JOB')
+
+# Calculating average duration for each job
+avg_duration_per_job = data.groupby('JOB')['DURATION'].mean().reset_index()
+
+# Plotting
+plt.figure(figsize=(10, 6))
+sns.barplot(x='JOB', y='DURATION', data=avg_duration_per_job)
+plt.xticks(rotation=45)
+plt.title('Average DURATION per JOB')
+plt.xlabel('JOB')
+plt.ylabel('Average DURATION')
 
 # Show the plot in the Streamlit app
 st.pyplot(plt)
