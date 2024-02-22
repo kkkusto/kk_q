@@ -1,48 +1,77 @@
-import cx_Oracle
+import pandas as pd
+import matplotlib.pyplot as plt
+import numpy as np
 
-# Replace 'username', 'password', 'hostname', 'port', and 'service_name' with your actual database details
-username = 'your_username'
-password = 'your_password'
-dsn = 'hostname:port/service_name'
-port = 1521
-service_name = 'your_service_name'
+# Simulating the DataFrame (replace this with reading from CSV)
 
-# Construct the connection string
-dsn_tns = cx_Oracle.makedsn('hostname', port, service_name=service_name)
-
-# Establish the connection
-connection = cx_Oracle.connect(user=username, password=password, dsn=dsn_tns)
-
-# Create a cursor
-cursor = connection.cursor()
-
-# Execute a query
-cursor.execute('SELECT * FROM your_table')
-
-# Fetch the results
-for row in cursor:
-    print(row)
-
-# Close the cursor and connection
-cursor.close()
-connection.close()
+df = pd.DataFrame(data)
+df['Date'] = pd.to_datetime(df['Date']) # Converting the Date column to datetime
 
 
-import cx_Oracle
+# Plotting COUNT1 over time for each JOB
+plt.figure(figsize=(10, 6))
+for job in df['JOB'].unique():
+    df_job = df[df['JOB'] == job]
+    plt.plot(df_job['Date'], df_job['COUNT1'], label=job)
 
-# Assuming connection is already established
-# connection = cx_Oracle.connect(user, password, dsn)
+plt.xlabel('Date')
+plt.ylabel('COUNT1')
+plt.title('COUNT1 Over Time by JOB')
+plt.legend()
+plt.show()
 
-# Create a cursor
-cursor = connection.cursor()
 
-# Execute a query to get all tables accessible by the current user
-cursor.execute("SELECT table_name FROM ALL_TABLES")
+# Sum of COUNT1 for each PID
+pid_counts = df.groupby('PID')['COUNT1'].sum()
 
-# Fetch and print the results
-print("Accessible Tables:")
-for row in cursor:
-    print(row[0])
+plt.figure(figsize=(8, 6))
+pid_counts.plot(kind='bar')
+plt.xlabel('PID')
+plt.ylabel('Sum of COUNT1')
+plt.title('Sum of COUNT1 for Each PID')
+plt.xticks(rotation=45)
+plt.show()
 
-# Close the cursor
-cursor.close()
+
+plt.figure(figsize=(8, 6))
+df.boxplot(column='COUNT1', by='JOB')
+plt.title('Distribution of COUNT1 by JOB')
+plt.suptitle('') # Remove the automatic 'Boxplot grouped by JOB' title
+plt.xlabel('JOB')
+plt.ylabel('COUNT1')
+plt.show()
+
+
+import streamlit as st
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# Load the data
+@st.cache
+def load_data():
+    data = pd.read_csv('data.csv')
+    data['Date'] = pd.to_datetime(data['Date'])  # Ensure the Date column is treated as dates
+    return data
+
+data = load_data()
+
+# Title for the Streamlit app
+st.title('Job Count Visualization')
+
+# Sidebar for user input to select a JOB
+job_list = data['JOB'].unique()
+selected_job = st.sidebar.selectbox('Select a JOB to visualize', job_list)
+
+# Filter data based on selected JOB
+filtered_data = data[data['JOB'] == selected_job]
+
+# Plotting
+fig, ax = plt.subplots()
+ax.plot(filtered_data['Date'], filtered_data['COUNT1'], marker='o', linestyle='-')
+ax.set_title(f'Count over Time for {selected_job}')
+ax.set_xlabel('Date')
+ax.set_ylabel('Count')
+plt.xticks(rotation=45)  # Rotate date labels for better readability
+
+# Show the plot in the Streamlit app
+st.pyplot(fig)
