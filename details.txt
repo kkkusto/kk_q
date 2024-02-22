@@ -1,15 +1,10 @@
-filtered_data = data[data['JOB'] == selected_job]
-
-# Convert Date to just date (no time) if it includes time
-filtered_data['Date'] = filtered_data['Date'].dt.date
-
 # Plotting
-plt.figure(figsize=(10, 6))
-sns.boxplot(x='Date', y='COUNT1', data=filtered_data)
-plt.xticks(rotation=45)  # Rotate date labels for better readability
-plt.title(f'Count Distribution per Date for {selected_job}')
+plt.figure(figsize=(12, 6))
+sns.barplot(x='Date', y='COUNT1', hue='LABEL1', data=data, palette='viridis', ci=None)
+plt.xticks(rotation=45)
+plt.title('COUNT1 per LABEL1 for Each Date')
 plt.xlabel('Date')
-plt.ylabel('Count')
+plt.ylabel('COUNT1')
 
 # Show the plot in the Streamlit app
 st.pyplot(plt)
