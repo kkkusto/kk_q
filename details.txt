@@ -7,49 +7,24 @@ import matplotlib.pyplot as plt
 @st.cache
 def load_data():
     data = pd.read_csv('data.csv')
+    data['Date'] = pd.to_datetime(data['Date']).dt.date  # Ensure the Date column is in date format
     return data
 
 data = load_data()
 
 # Title for the Streamlit app
-st.title('JOB vs DURATION Scatter Plot')
+st.title('Duration per Job per Date')
+
+# Aggregating duration by job and date. You can adjust this aggregation to sum, mean, etc., based on your requirements.
+agg_data = data.groupby(['Date', 'JOB'], as_index=False)['DURATION'].sum()
 
 # Plotting
-plt.figure(figsize=(10, 6))
-sns.scatterplot(x='JOB', y='DURATION', data=data)
+plt.figure(figsize=(12, 6))
+sns.barplot(x='Date', y='DURATION', hue='JOB', data=agg_data, palette='viridis')
 plt.xticks(rotation=45)
-plt.title('JOB vs DURATION')
-plt.xlabel('JOB')
-plt.ylabel('DURATION')
-
-# Show the plot in the Streamlit app
-st.pyplot(plt)
-import streamlit as st
-import pandas as pd
-import seaborn as sns
-import matplotlib.pyplot as plt
-
-# Load the data
-@st.cache
-def load_data():
-    data = pd.read_csv('data.csv')
-    return data
-
-data = load_data()
-
-# Title for the Streamlit app
-st.title('Average DURATION per JOB')
-
-# Calculating average duration for each job
-avg_duration_per_job = data.groupby('JOB')['DURATION'].mean().reset_index()
-
-# Plotting
-plt.figure(figsize=(10, 6))
-sns.barplot(x='JOB', y='DURATION', data=avg_duration_per_job)
-plt.xticks(rotation=45)
-plt.title('Average DURATION per JOB')
-plt.xlabel('JOB')
-plt.ylabel('Average DURATION')
+plt.title('Duration per Job per Date')
+plt.xlabel('Date')
+plt.ylabel('Duration')
 
 # Show the plot in the Streamlit app
 st.pyplot(plt)
