@@ -1,30 +1,46 @@
-import streamlit as st
-import pandas as pd
-import seaborn as sns
 import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 
-# Load the data
-@st.cache
-def load_data():
-    data = pd.read_csv('data.csv')
-    data['Date'] = pd.to_datetime(data['Date']).dt.date  # Ensure the Date column is in date format
-    return data
+# Sample data generation
+np.random.seed(0)  # For reproducibility
+rows_processed = np.random.randint(1000, 100000, 100)
+duration = np.random.rand(100) * 10  # durations between 0 and 10 hours
+origins = np.random.choice(['Origin A', 'Origin B', 'Origin C'], 100)
 
-data = load_data()
+data = pd.DataFrame({
+    'Rows Processed': rows_processed,
+    'Duration': duration,
+    'Origin': origins
+})
 
-# Title for the Streamlit app
-st.title('Duration per Job per Date')
+# Heatmap (using histogram2d for simplicity in this example)
+plt.figure(figsize=(10, 6))
+plt.hist2d(data['Rows Processed'], data['Duration'], bins=(20, 20), cmap=plt.cm.jet)
+plt.colorbar()
+plt.xlabel('Rows Processed')
+plt.ylabel('Duration (hours)')
+plt.title('Heatmap of Job Duration by Rows Processed')
+plt.savefig('/mnt/data/heatmap.png')
+plt.close()
 
-# Aggregating duration by job and date. You can adjust this aggregation to sum, mean, etc., based on your requirements.
-agg_data = data.groupby(['Date', 'JOB'], as_index=False)['DURATION'].sum()
+# Bubble Chart
+plt.figure(figsize=(10, 6))
+for origin in data['Origin'].unique():
+    subset = data[data['Origin'] == origin]
+    plt.scatter(subset['Rows Processed'], subset['Duration'], s=subset['Rows Processed'] / 1000, alpha=0.5, label=origin)
+plt.xlabel('Rows Processed')
+plt.ylabel('Duration (hours)')
+plt.title('Bubble Chart of Jobs')
+plt.legend()
+plt.savefig('/mnt/data/bubble_chart.png')
+plt.close()
 
-# Plotting
-plt.figure(figsize=(12, 6))
-sns.barplot(x='Date', y='DURATION', hue='JOB', data=agg_data, palette='viridis')
-plt.xticks(rotation=45)
-plt.title('Duration per Job per Date')
-plt.xlabel('Date')
-plt.ylabel('Duration')
-
-# Show the plot in the Streamlit app
-st.pyplot(plt)
+# Histogram of Job Durations
+plt.figure(figsize=(10, 6))
+plt.hist(data['Duration'], bins=20, alpha=0.7)
+plt.xlabel('Duration (hours)')
+plt.ylabel('Number of Jobs')
+plt.title('Histogram of Job Durations')
+plt.savefig('/mnt/data/histogram_durations.png')
+plt.close()
