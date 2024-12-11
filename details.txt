@@ -1,449 +1,271 @@
-import subprocess
-import csv
 import datetime
-import uuid
-import logging
-import argparse
-from utils import *
-from email_helper import *
 
-# Set current timestamp for logs and batch operations
-current_datetime = datetime.datetime.now()
-current_datetime_str = current_datetime.strftime("%Y_%m_%d_%H%M%S")
-log_filename = "pharmacy_tables_archival_{}.log".format(current_datetime_str)
-
-# Configure logging to capture detailed debug information
-logging.basicConfig(
-    filename=log_filename,      # Log file name
-    filemode='a',               # Append logs to the file
-    format="%(asctime)s - %(levelname)s - %(message)s - Line:%(lineno)d",
-    level=logging.DEBUG         # Log level: DEBUG for detailed info
-)
-
-def generate_unique_id():
-    """Generate a unique ID (UUID) to uniquely identify a batch operation."""
-    return str(uuid.uuid4())
-
-def insert_to_part2_table(table_name_part1, partition, source_database, partitions_dict, beeline_str, 
-                          insertion_timestamp, part1_column_names):
+# -----------------------------------------------
+# Metadata/Read-Only Queries
+# -----------------------------------------------
+def format_get_partitions_query(source_database, table_name):
     """
-    Inserts data from a specified partition of 'part1' table into a corresponding 'part2' table 
-    for archival. Performs rollback if the insertion count doesn't match the original partition count.
+    Returns a SQL command to show partitions of a given table.
+    
+    Args:
+        source_database (str): The name of the source database.
+        table_name (str): The name of the table to show partitions for.
+
+    Returns:
+        str: The SQL command to show the table's partitions.
     """
-    try:
-        # Construct fully qualified table names
-        table_name_part2 = table_name_part1 + "_part2"
-        joined_table_name_part1 = "{}.{}".format(source_database, table_name_part1)
-        joined_table_name_part2 = "{}.{}".format(source_database, table_name_part2)
-        
-        # Get conditions for filtering data by partition
-        condition = get_partition_condition(partitions_dict)
-
-        # Exclude partition columns from the column list so we don't duplicate partitioning columns
-        partitions_names = [key for key in partitions_dict.keys()]
-        part1_column_names = [col for col in part1_column_names if col not in partitions_names]
-
-        # Create a dictionary for part2 partitions that includes an insertion timestamp partition
-        partitions_dict_part2 = partitions_dict.copy()
-        partitions_dict_part2["part2_insertion_time_partition"] = insertion_timestamp
-
-        # Validate the number of rows in the original partition before copying
-        num_rows_partitions_part1 = get_row_count(joined_table_name_part1, beeline_str, condition)
-        condition_part2 = get_partition_condition(partitions_dict_part2)
-        
-        if not num_rows_partitions_part1:
-            # If row count retrieval fails, log and return
-            count_failed_comment = (
-                f"Failed to get counts for part1: {table_name_part1} "
-                f"part2: {table_name_part2} table: {joined_table_name_part1} table remains"
-            )
-            print(count_failed_comment)
-            logging.info(count_failed_comment)
-            return False, count_failed_comment, "", 0, 0
-        
-        logging.info("Got row count for partition")
-        print("Got row count for partition")
-
-        # Format the insert query to transfer data to the part2 table
-        beeline_cmd_insert_data = format_insert_data_query(
-            joined_table_name_part1,
-            joined_table_name_part2,
-            partitions_dict_part2,
-            condition,
-            part1_column_names,
-            beeline_str
-        )
-
-        logging.info("Inserting data into part2 table: {}".format(joined_table_name_part2))
-        print("Inserting data into part2 table: {}".format(joined_table_name_part2))
-
-        # Execute the insert command
-        insert_sql_result = execute_beeline_sql(beeline_cmd_insert_data, beeline_str)
-
-        # Verify that the number of rows copied matches the source
-        num_rows_after_insert_part2 = int(get_row_count(joined_table_name_part2, beeline_str, condition_part2))
-        num_rows_partitions_part1 = int(num_rows_partitions_part1)
-
-        # If counts don't match or insertion failed, rollback by deleting inserted rows from part2
-        if not insert_sql_result or (num_rows_after_insert_part2 != num_rows_partitions_part1):
-            print("Error while copying data")
-            logging.info("Rows got copied to part2 table: rollback required")
-
-            # Attempt rollback by deleting the newly inserted rows in part2
-            logging.info("Deleting rows from part2 table: {}".format(joined_table_name_part2))
-            print("Deleting rows from part2 table: {}".format(joined_table_name_part2))
-
-            delete_rows_sql = format_delete_partition_query(joined_table_name_part2, partitions_dict_part2)
-            delete_new_rows_result = execute_beeline_sql(delete_rows_sql, beeline_str)
-
-            # If deletion also fails, we log and advise manual cleanup
-            if not delete_new_rows_result:
-                logging.info("Delete operation failed from part2 table: {}".format(joined_table_name_part2))
-                print("Deleting operation failed from part2 table: {}".format(joined_table_name_part2))
-                logging.info("Manual delete operation command: {}".format(delete_rows_sql))
-                print("Manual delete operation command: {}".format(delete_rows_sql))
-                return False, (
-                    "Deleting operation failed from part2 table: {} - Manual delete operation command: {}".format(
-                        joined_table_name_part2, delete_rows_sql
-                    )
-                ), delete_rows_sql, 0, 0
-
-        # If we reach here, the insertion was successful
-        logging.info("Successfully inserted data into part2 table: {}".format(joined_table_name_part2))
-        print("Successfully inserted data into part2 table: {}".format(joined_table_name_part2))
-        return True, (
-            "Successfully copied data to part2 table: {} - Use the following query to get data from part2 table: {}".format(
-                joined_table_name_part2, format_select_part2_query(joined_table_name_part2, condition_part2)
-            )
-        ), "", num_rows_partitions_part1, num_rows_after_insert_part2
-
-    except Exception as e:
-        # Catch any errors and return failure details
-        print("Error occurred for table {}: {}, partition: {}".format(joined_table_name_part1, e, partition))
-        logging.error("Error occurred for table {}: {}".format(joined_table_name_part1, e))
-        return False, "Error occurred for table {}: {}".format(joined_table_name_part1, e), "", 0, 0
+    cmd = "SHOW PARTITIONS {}.{}".format(source_database, table_name)
+    return cmd
 
 
-def delete_partition(
-    table_name_part1, partition, source_database, partitions_dict, 
-    beeline_str, batch_id, insertion_timestamp, is_part2_table=False
+def format_describe_query(table_name):
+    """
+    Returns a SQL command to describe a given table's schema.
+    
+    Args:
+        table_name (str): The name of the table to describe.
+
+    Returns:
+        str: The SQL command to describe the table's schema.
+    """
+    describe_cmd = "DESCRIBE {}".format(table_name)
+    return describe_cmd
+
+
+def format_get_create_query(joined_table_name):
+    """
+    Returns a SQL command to show the CREATE statement of a given table.
+    
+    Args:
+        joined_table_name (str): The fully qualified name of the table.
+
+    Returns:
+        str: The SQL command to show the table's CREATE statement.
+    """
+    create_query = "SHOW CREATE TABLE {}".format(joined_table_name)
+    return create_query
+
+
+def format_get_count_query(table_name, where=None):
+    """
+    Returns a SQL command to get the count of rows from a table, optionally filtered by a WHERE clause.
+    
+    Args:
+        table_name (str): The name of the table.
+        where (str, optional): An optional WHERE clause to filter rows.
+
+    Returns:
+        str: The SQL command to get the row count from the table.
+    """
+    get_count_sql_query = "SELECT COUNT(*) FROM {}".format(table_name)
+    if where:
+        get_count_sql_query += " WHERE {}".format(where)
+    return get_count_sql_query
+
+
+def format_select_part2_query(table_name, condition):
+    """
+    Returns a SQL command to select all rows from a table filtered by a condition.
+    
+    Args:
+        table_name (str): The name of the table.
+        condition (str): A SQL condition (e.g., "col='value'").
+
+    Returns:
+        str: The SQL SELECT command with the specified condition.
+    """
+    return "SELECT * FROM {} WHERE {}".format(table_name, condition)
+
+
+# -----------------------------------------------
+# DDL (Data Definition Language) Queries
+# -----------------------------------------------
+def format_add_partition_query(table_name, partitions_dict):
+    """
+    Returns a SQL command to add a partition to a table if it does not exist.
+    
+    Args:
+        table_name (str): The name of the table.
+        partitions_dict (dict): A dictionary of partition key-value pairs. 
+            Example: {"date": "2024-01-01", "region": "US"}
+
+    Returns:
+        str: The SQL command to add the partition.
+    """
+    query = "ALTER TABLE {} ADD IF NOT EXISTS PARTITION (".format(table_name)
+    partitions = ["{} = '{}'".format(key, value) for key, value in partitions_dict.items()]
+    query += ", ".join(partitions) + ");"
+    return query
+
+
+def format_delete_partition_query(table_name, partitions_dict, where=None):
+    """
+    Returns a SQL command to drop a specific partition from a table, optionally filtered by a WHERE clause.
+    
+    Args:
+        table_name (str): The name of the table.
+        partitions_dict (dict): A dictionary of partition key-value pairs identifying the partition to drop.
+        where (str, optional): An optional WHERE clause to further filter partitions to drop.
+
+    Returns:
+        str: The SQL command to drop the specified partition.
+    """
+    partitions = ["{} = '{}'".format(key, value) for key, value in partitions_dict.items()]
+    partition_str = ", ".join(partitions)
+    cmd_delete_data = "ALTER TABLE {} DROP PARTITION ({})".format(table_name, partition_str)
+    if where:
+        cmd_delete_data += " WHERE {}".format(where)
+    return cmd_delete_data
+
+
+# -----------------------------------------------
+# DML (Data Manipulation Language) Queries
+# -----------------------------------------------
+def format_insert_data_query(table_name_part1, table_name_part2, partitions_dict, condition, column_names):
+    """
+    Returns a SQL command to insert data into a partitioned table (part2) from another table (part1),
+    filtered by a given condition and including only the specified columns.
+    
+    Args:
+        table_name_part1 (str): The source table name from which data is selected.
+        table_name_part2 (str): The target table name into which data is inserted.
+        partitions_dict (dict): Dictionary defining the partition values for the target table.
+        condition (str): A SQL condition (e.g., "date='2024-01-01'") to filter source data.
+        column_names (list[str]): The list of column names to select from the source table.
+
+    Returns:
+        str: The SQL INSERT command to copy data from table_name_part1 to table_name_part2.
+    """
+    partitions = ["{} = '{}'".format(key, value) for key, value in partitions_dict.items()]
+    partition_str = ", ".join(partitions)
+    column_names_str = ", ".join(column_names)
+    cmd_insert_data = "INSERT INTO {} PARTITION ({}) SELECT {} FROM {} WHERE {}".format(
+        table_name_part2, partition_str, column_names_str, table_name_part1, condition
+    )
+    return cmd_insert_data
+
+
+# -----------------------------------------------
+# Logging and Archival Operation Queries
+# -----------------------------------------------
+def format_create_archival_operation_table_query(source_database):
+    """
+    Returns a SQL command to create the archival_operation_log table if it does not exist.
+    
+    Args:
+        source_database (str): The name of the database in which to create the table.
+
+    Returns:
+        str: The SQL command to create the archival_operation_log table.
+    """
+    create_table_sql_query = """
+    CREATE TABLE IF NOT EXISTS {}.archival_operation_log (
+        batch_id STRING,
+        table_name_part1 STRING,
+        table_name_part2 STRING,
+        source_database STRING,
+        candidate_partition STRING,
+        modified_partitions_part2 STRING,
+        status BOOLEAN,
+        operation_datetime TIMESTAMP,
+        part2_table_location STRING,
+        is_inserted_to_part2 BOOLEAN,
+        is_deleted_from_part1 BOOLEAN,
+        rollback_required BOOLEAN,
+        rollback_success BOOLEAN
+    );
+    """.format(source_database)
+    return create_table_sql_query
+
+
+def format_insert_archival_op_query(
+    table_name_part1, table_name_part2, source_database, partition,
+    modified_partitions_part2, batch_id, status, part2_table_location="",
+    is_inserted_to_part2=False, is_deleted_from_part1=False,
+    rollback_required=False, rollback_success=False
 ):
     """
-    Deletes a partition from either the part1 or part2 table. 
-    Used for cleanup after successful archival or rollback if something fails.
-    """
-    try:
-        table_name_part2 = table_name_part1 + "_part2"
-        joined_table_name_part1 = "{}.{}".format(source_database, table_name_part1)
-        joined_table_name_part2 = "{}.{}".format(source_database, table_name_part2)
-        table_to_delete = joined_table_name_part1
-
-        # If deleting from part2, add the insertion timestamp partition condition
-        partitions_dict_part2 = partitions_dict.copy()
-        if is_part2_table:
-            partitions_dict_part2["part2_insertion_time_partition"] = insertion_timestamp
-            table_to_delete = joined_table_name_part2
-
-        delete_rows_sql = format_delete_partition_query(table_to_delete, partitions_dict_part2)
-        delete_new_rows_result = execute_beeline_sql(delete_rows_sql, beeline_str)
-
-        if not delete_new_rows_result:
-            # If deletion fails, log and provide a manual cleanup command
-            logging.info("Delete operation failed from table: {}".format(table_to_delete))
-            print("Deleting operation failed from table: {}".format(table_to_delete))
-            logging.info("Manual delete operation command: {}".format(delete_rows_sql))
-            print("Manual delete operation command: {}".format(delete_rows_sql))
-            return False
-        
-        return True
-
-    except Exception as e:
-        print("Error while processing table {}: {}".format(table_name_part1, e))
-        logging.error("Error while processing table {}: {}".format(table_name_part1, e))
-        return False
-
-
-def process_partitions(table_names, source_database, beeline_str, batch_id, insertion_timestamp):
-    """
-    Given a list of table names, identify partitions older than a specified threshold (e.g., 7 years),
-    move them to a 'part2' archival table, and clean up the original table. 
-    If any step fails, attempt rollbacks and log results.
-    """
-    table_partitions_dict = {}
-
-    for table_name in table_names:
-        try:
-            print("\n---------------------------------")
-            print("Checking table: {}".format(table_name))
-            logging.info("Checking table: {}".format(table_name))
-
-            # If the table name includes the database name, override 'source_database'
-            if "." in table_name:
-                source_database = table_name.split(".")[0]
-                table_name = table_name.split(".")[-1]
-
-            table_partitions_dict[table_name] = {}
-            
-            # Retrieve all partition names for the table
-            schema_lines = get_partitions_names(source_database, table_name, beeline_str)
-            current_yr = datetime.datetime.now().year
-            partitions_to_archive = []
-
-            # Determine which partitions are candidates for archival
-            for schema in schema_lines:
-                partition = schema.replace("|", "").strip()
-                if not partition:
-                    logging.warning("Empty partition found. Skipping.")
-                    continue
-
-                print("Checking partition: {}".format(partition))
-                logging.info("Checking partition: {}".format(partition))
-
-                partitions_dict = dict(item.split("=") for item in partition.split("/"))
-                splited_list = partition.split("/")
-
-                # Extract year information from the partition paths
-                splited_parts_yr = []
-                for part in splited_list:
-                    temp_yr = part.split("=")[-1][:4]
-                    if len(temp_yr) == 4 and temp_yr.isdigit():
-                        splited_parts_yr.append(int(temp_yr))
-
-                # Check if the partition is older than 7 years
-                if len(splited_parts_yr) > 0:
-                    last_yr = splited_parts_yr[-1]
-                    yrs_diff = current_yr - last_yr
-
-                    # Archive only if older than 7 years and not the default '1970' partition
-                    if yrs_diff > 7:
-                        if last_yr != 1970:
-                            logging.info("Adding partition to candidate list: {}".format(partition))
-                            print("Adding partition to candidate list: {}".format(partition))
-                            partitions_to_archive.append(partition)
-
-                            # Store metadata for this partition
-                            dict_data = {
-                                "partitions_dict_part1": partitions_dict,
-                                "is_inserted_to_part2": False,
-                                "is_deleted_from_part1": False,
-                                "rollback_required": False,
-                                "rollback_success": False,
-                                "partitions_dict_part2": partitions_dict.copy(),
-                            }
-
-                            table_partitions_dict[table_name][partition] = dict_data
-                        else:
-                            print("Skipping partition: {}".format(partition))
-                            logging.info("Skipping partition: {}".format(partition))
-                    else:
-                        print("Skipping partition: {}".format(partition))
-                        logging.info("Skipping partition: {}".format(partition))
-
-            # If there are partitions to archive, create the part2 table and proceed
-            if len(partitions_to_archive) > 0:
-                table_name_part2 = table_name + "_part2"
-                joined_table_name_part1 = "{}.{}".format(source_database, table_name)
-                joined_table_name_part2 = "{}.{}".format(source_database, table_name_part2)
-
-                logging.info("Creating part2 table: {}".format(table_name_part2))
-                print("Creating part2 table: {}".format(table_name_part2))
-                
-                # Create the archival (part2) table structure
-                create_sql_result, part1_column_names = create_part2_table(
-                    joined_table_name_part1, joined_table_name_part2, beeline_str
-                )
-
-                if not create_sql_result:
-                    create_failed_cmts = (
-                        "Failed to create part2 table: {}. Table {} remains as is.".format(
-                            joined_table_name_part2, joined_table_name_part1
-                        )
-                    )
-                    print(create_failed_cmts)
-                    logging.info(create_failed_cmts)
-                    # If part2 table creation fails, we cannot proceed with archiving
-                    continue
-
-                logging.info("Created part2 table: {}".format(joined_table_name_part2))
-                print("Created part2 table: {}".format(joined_table_name_part2))
-
-                total_part1_rows_to_archive = 0
-                total_part2_rows_copied = 0
-                failed_flag = False
-
-                # Insert each partition's data into the part2 table
-                for partition in partitions_to_archive:
-                    partitions_dict = table_partitions_dict[table_name][partition]["partitions_dict_part1"]
-                    print("Adding data from '{}' to part2 table".format(partition))
-                    logging.info("Adding data from '{}' to part2 table".format(partition))
-
-                    # Perform the archival copy operation
-                    res, comments, query, num_rows_partitions_part1, num_rows_after_insert_part2 = insert_to_part2_table(
-                        table_name, partition, source_database, partitions_dict, beeline_str,
-                        current_datetime_str, part1_column_names
-                    )
-
-                    if res:
-                        print("Successfully archived partition: {}".format(partition))
-                        logging.info("Successfully archived partition: {}".format(partition))
-                        
-                        # Track the number of rows moved for verification
-                        total_part1_rows_to_archive += num_rows_partitions_part1
-                        total_part2_rows_copied += num_rows_after_insert_part2
-
-                        table_partitions_dict[table_name][partition]["partitions_dict_part2"]["part2_insertion_time_partition"] = current_datetime_str
-                        table_partitions_dict[table_name][partition]["is_inserted_to_part2"] = True
-                    else:
-                        # If this partition fails, flag a failure so we can rollback
-                        print("Error archiving partition: {}. Rollback operation for part2.".format(partition))
-                        logging.info("Error archiving partition: {}. Rollback operation for part2.".format(partition))
-                        table_partitions_dict[table_name][partition]["is_inserted_to_part2"] = False
-                        failed_flag = True
-
-                # If all copied rows match the count in original partitions and no failures occurred:
-                # we can safely delete them from the original table
-                if total_part1_rows_to_archive == total_part2_rows_copied and not failed_flag:
-                    print("Successfully copied all partitions")
-                    logging.info("Successfully copied all partitions")
-
-                    # Delete old partitions from part1 now that they're safely in part2
-                    for partition in partitions_to_archive:
-                        if table_partitions_dict[table_name][partition]["is_inserted_to_part2"]:
-                            res = delete_partition(
-                                table_name, partition, source_database,
-                                table_partitions_dict[table_name][partition]["partitions_dict_part1"], 
-                                beeline_str, current_datetime_str, current_datetime_str, is_part2_table=False
-                            )
-                            table_partitions_dict[table_name][partition]["is_deleted_from_part1"] = res
-                else:
-                    # If rows did not copy correctly, rollback by removing inserted rows from part2
-                    failed_flag = True
-                    print("All rows did not copy successfully; we have to delete part2 partitions")
-                    logging.info("All rows did not copy successfully; we have to delete part2 partitions")
-
-                    for partition in partitions_to_archive:
-                        partitions_dict_part2 = table_partitions_dict[table_name][partition]["partitions_dict_part2"]
-                        res = delete_partition(
-                            table_name, partition, source_database, partitions_dict_part2, 
-                            beeline_str, current_datetime_str, current_datetime_str, is_part2_table=True
-                        )
-                        if res:
-                            table_partitions_dict[table_name][partition]["rollback_success"] = True
-                        else:
-                            table_partitions_dict[table_name][partition]["rollback_required"] = True
-                            table_partitions_dict[table_name][partition]["rollback_success"] = False
-
-                # Log the archival operation results
-                print("Logging operation in archival operation")
-                logging.info("Logging operation in archival operation")
-
-                # Only log if everything succeeded
-                if not failed_flag:
-                    location = get_table_location(table_name_part2, source_database, beeline_str)
-                    data_to_add_log = []
-
-                    # Prepare a batch of log entries
-                    for partition in partitions_to_archive:
-                        pdict_part1 = table_partitions_dict[table_name][partition]["partitions_dict_part1"]
-                        pdict_part2 = table_partitions_dict[table_name][partition]["partitions_dict_part2"]
-                        
-                        result_string_part1 = "/".join(["{}={}".format(k, v) for k, v in pdict_part1.items()])
-                        result_string_part2 = "/".join(["{}={}".format(k, v) for k, v in pdict_part2.items()])
-
-                        is_inserted_to_part2 = table_partitions_dict[table_name][partition]["is_inserted_to_part2"]
-                        is_deleted_from_part1 = table_partitions_dict[table_name][partition]["is_deleted_from_part1"]
-                        rollback_required = table_partitions_dict[table_name][partition]["rollback_required"]
-                        rollback_success = table_partitions_dict[table_name][partition]["rollback_success"]
-
-                        data_to_add_log.append((
-                            table_name, table_name_part2, source_database, result_string_part1,
-                            result_string_part2, current_datetime, current_datetime_str, failed_flag, location,
-                            is_inserted_to_part2, is_deleted_from_part1, rollback_required, rollback_success
-                        ))
-
-                    # Insert the log data into archival operation table
-                    insert_log_operation_res = execute_beeline_sql(
-                        format_batch_insert_log_query(source_database, data_to_add_log), beeline_str
-                    )
-
-                    if not insert_log_operation_res:
-                        logging.info("Logged operation failed in archival_operation table")
-                        print("Logged operation failed in archival_operation")
-                    else:
-                        logging.info("Logged operation in archival_operation table")
-                        print("Logged operation in archival_operation")
-
-        except Exception as e:
-            # Catch exceptions on a per-table basis and continue with the next table
-            print("Error while processing table {}: {}".format(table_name, e))
-            logging.error("Error while processing table {}: {}".format(table_name, e))
-
-    return table_partitions_dict
-
-
-def main(include_file, source_database, beeline_str, to_email_ids, cc_email_ids, sender_email_id):
-    """
-    Main driver function:
-    - Creates a batch ID
-    - Sets up the archival operation log table
-    - Processes tables and their partitions for archival
-    - Summarizes results and sends notification emails
-    """
-    logging.info("Creating batch ID")
-    print("Creating batch ID")
+    Returns a SQL command to insert a single archival operation record into the archival_operation_log table.
     
-    insertion_timestamp = current_datetime_str
-    batch_id = "{}_{}".format(generate_unique_id(), current_datetime_str)
-    logging.info("Created batch ID: {}".format(batch_id))
-    print("Created batch ID: {}".format(batch_id))
+    Args:
+        table_name_part1 (str): The part1 table name involved in the operation.
+        table_name_part2 (str): The part2 table name involved in the operation.
+        source_database (str): The source database name.
+        partition (str): The candidate partition involved in the operation.
+        modified_partitions_part2 (str): Partitions added or modified in part2 during the operation.
+        batch_id (str): The batch identifier for the operation.
+        status (bool): The status of the operation (True = success, False = failure).
+        part2_table_location (str, optional): The HDFS location of the part2 table. Defaults to "".
+        is_inserted_to_part2 (bool, optional): Whether data was inserted into part2. Defaults to False.
+        is_deleted_from_part1 (bool, optional): Whether data was deleted from part1. Defaults to False.
+        rollback_required (bool, optional): Whether a rollback is required. Defaults to False.
+        rollback_success (bool, optional): Whether rollback was successful. Defaults to False.
 
-    # Create archival operation log table if it doesn't exist
-    create_archival_op_query = format_create_archival_operation_table_query(source_database)
-    logging.info("Creating archival operation log table")
-    print("Creating archival operation log table")
-    execute_beeline_sql(create_archival_op_query, beeline_str)
-    logging.info("Created archival operation log table")
-    print("Created archival operation log table")
-
-    # Read the list of tables to include from a file
-    with open(include_file, "r") as file:
-        table_names = [line.strip() for line in file]
-
-    # Process the partitions of the given tables for archival
-    table_partitions_dict = process_partitions(table_names, source_database, beeline_str, batch_id, insertion_timestamp)
-
-    # Summarize the archival results for reporting
-    summary = summarize_table_partitions_dict(table_partitions_dict)
-    print(summary)
-    logging.info(summary)
-
-    # Generate a CSV summary from the archival operation table for email attachment if needed
-    csv_file = execute_beeline_csv(beeline_str, source_database, batch_id)
-    start_date = datetime.datetime.today().strftime("%m-%d-%Y")
-
-    # Send summary or notification emails based on whether a CSV file is generated
-    logging.info("Sending mail")
-    print("Sending mail")
-
-    if not csv_file:
-        send_summary_email(batch_id, start_date, to_email_ids, summary, cc_email_ids, sender_email_id)
-    else:
-        send_email_notification(start_date, to_email_ids, csv_file, summary, cc_email_ids, sender_email_id)
-        logging.info("Mail sent")
-        print("Mail sent")
+    Returns:
+        str: The SQL INSERT command for the archival_operation_log table.
+    """
+    query = """
+    INSERT INTO {}.archival_operation_log (
+        table_name_part1, table_name_part2, source_database,
+        candidate_partition, modified_partitions_part2,
+        operation_datetime, batch_id, status, failed_query, comment,
+        part2_table_location, is_inserted_to_part2, is_deleted_from_part1,
+        rollback_required, rollback_success
+    ) VALUES (
+        '{}', '{}', '{}', '{}', '{}', '{}', '{}', {}, '{}', '{}',
+        '{}', {}, {}, {}, {}
+    );
+    """.format(
+        source_database,
+        table_name_part1, table_name_part2, source_database, partition,
+        modified_partitions_part2, datetime.datetime.now(), batch_id,
+        status, "", "", part2_table_location, is_inserted_to_part2,
+        is_deleted_from_part1, rollback_required, rollback_success
+    )
+    return query
 
 
-if __name__ == "__main__":
-    # Parse command-line arguments for file paths, database names, and email details
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--include_file", required=True, help="File with tables to include")
-    parser.add_argument("--source_database", required=True, help="Source database name")
-    parser.add_argument("--beeline_str", required=True, help="Beeline connection string")
-    parser.add_argument("--to_email_ids", required=True, help="Comma separated list of TO email ids")
-    parser.add_argument("--cc_email_ids", required=False, default="", help="Comma separated list of CC email ids")
-    parser.add_argument("--sender_email_id", required=False, default="", help="Sender email id")
+def format_batch_insert_log_query(source_database, data):
+    """
+    Returns a SQL command to batch insert multiple archival operation records into the archival_operation_log table.
+    
+    Args:
+        source_database (str): The database name containing the archival_operation_log table.
+        data (list[list]): A list of rows to insert. Each row corresponds to columns:
+            [
+                table_name_part1, table_name_part2, source_database, candidate_partition,
+                modified_partitions_part2, operation_datetime (datetime object),
+                batch_id, status (boolean), part2_table_location,
+                is_inserted_to_part2 (boolean), is_deleted_from_part1 (boolean),
+                rollback_required (boolean), rollback_success (boolean)
+            ]
 
-    args = parser.parse_args()
+    Returns:
+        str: A SQL INSERT statement that inserts all given rows into archival_operation_log.
+    """
+    columns = [
+        "table_name_part1", "table_name_part2", "source_database",
+        "candidate_partition", "modified_partitions_part2",
+        "operation_datetime", "batch_id", "status",
+        "part2_table_location", "is_inserted_to_part2",
+        "is_deleted_from_part1", "rollback_required", "rollback_success"
+    ]
+    query = "INSERT INTO {}.archival_operation_log ({}) VALUES ".format(source_database, ", ".join(columns))
+    values_list = []
 
-    # Execute the main archival process
-    main(args.include_file, args.source_database, args.beeline_str, args.to_email_ids, args.cc_email_ids, args.sender_email_id)
+    for row in data:
+        formatted_values = []
+        for value in row:
+            if isinstance(value, str):
+                # Escape single quotes in strings
+                formatted_values.append("'{}'".format(value.replace("'", "\\'")))
+            elif isinstance(value, datetime.datetime):
+                # Format datetime as a string
+                formatted_values.append("'{}'".format(value.strftime('%m-%d-%Y %H:%M:%S')))
+            else:
+                # For booleans or other types
+                formatted_values.append(str(value))
+        values_list.append("({})".format(", ".join(formatted_values)))
+
+    query += ", ".join(values_list) + ";"
+    return query
