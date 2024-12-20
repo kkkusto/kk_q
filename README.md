@@ -1,19 +1,14 @@
-def extract_enter_month_values(strings):
-    results = []
-    for s in strings:
-        # Split the string on '/'
-        parts = s.split('/')
-        
-        # Iterate over each part to find the one containing 'fill_enter_mnth='
-        for part in parts:
-            if part.startswith('fill_enter_mnth='):
-                # Extract the value after '='
-                value = part.split('=', 1)[1]
-                results.append(value)
-                break  # Proceed to the next string once found
-    return results
+def missing_from_second_list(list1, list2):
+    """
+    Return a list of filenames that are present in list1 but not in list2.
+    """
+    set_list2 = set(list2)
+    missing_files = [f for f in list1 if f not in set_list2]
+    return missing_files
 
 # Example usage:
-input_list = ['fill_sold_yr=2011/fill_enter_mnth=200012']
-output = extract_enter_month_values(input_list)
-print(output)  # Should print ['200012']
+files_in_source = ["file1.txt", "file2.txt", "file3.txt", "file4.png"]
+files_in_dest = ["file2.txt", "file4.png"]
+
+missing = missing_from_second_list(files_in_source, files_in_dest)
+print(missing)  # Output: ['file1.txt', 'file3.txt']
