@@ -1,15 +1,18 @@
-#!/bin/bash
+flowchart TD
+    subgraph InsertionProcess [Insertion Process]
+        A1[Get table partitions]
+        A2[Find min and max year/yr_mnth partition range from part1 table]
+        A3[Add partitions based on this range to part2 table]
+        A4[Send email of total rows copied with batch ID]
+        A1 --> A2 --> A3 --> A4
+    end
 
-# Variables
-REMOTE_USER="your_username"
-REMOTE_HOST="remote.server.com"
-REMOTE_DIR="/path/on/remote"
-LOCAL_DIR="/path/on/local"
+    subgraph DeletionProcess [Deletion Process]
+        B1[Run deletion script with batch ID]
+        B2[Get table entry for batch ID]
+        B3[Delete partitions from part1 table]
+        B4[Send email after delete operation]
+        B1 --> B2 --> B3 --> B4
+    end
 
-# Example of using a here-document to run SFTP commands non-interactively
-sftp -oBatchMode=yes "${REMOTE_USER}@${REMOTE_HOST}" <<EOF
-cd ${REMOTE_DIR}
-lcd ${LOCAL_DIR}
-mget *.txt    # Get all .txt files from the remote directory
-bye
-EOF
+    InsertionProcess --> DeletionProcess
