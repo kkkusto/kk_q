@@ -1,56 +1,95 @@
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.text.SimpleDateFormat;
-import java.util.Date;
+import java.io.*;
+import java.sql.*;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 
-public class OracleJDBCExample {
+public class FileNameComparison {
     public static void main(String[] args) {
-        // Database connection details
-        String url = "jdbc:oracle:thin:@<hostname>:<port>:<service_name>";
-        String username = "<your_username>";
-        String password = "<your_password>";
-        
+        // JDBC connection parameters
+        String url = "jdbc:your_database_url"; // Replace with your DB URL
+        String user = "your_username";        // Replace with your DB username
+        String password = "your_password";    // Replace with your DB password
+
+        // Input and output file paths
+        String inputFile = "filenames.txt";   // Path to the file containing filenames (one per line)
+        String outputFile = "missing_filenames.txt"; // Path to the output file for missing filenames
+
+        // SQL query
+        String sqlQuery = "SELECT FILE_NAME FROM RAW_DATA_ING_METADATA " +
+                          "WHERE PROJ_ID = 'hadoop_pharmacy_prod' " +
+                          "AND DEPT_ID = 'ICPlus' " +
+                          "AND JOB_ID = 'raw_ingestion' " +
+                          "AND MODULE = 'PO' " +
+                          "AND STATUS = 'C' " +
+                          "AND UPDATE_TSMP >= TO_DATE('26-DEC-2024 00.05.03', 'DD-MON-YYYY HH24.MI.SS') " +
+                          "ORDER BY UPDATE_TSMP DESC";
+
         try {
-            // Get today's date in the required format with time set to 00.05.03
-            SimpleDateFormat dateFormat = new SimpleDateFormat("dd-MMM-yyyy");
-            String todayDate = dateFormat.format(new Date()) + " 00.05.03";
-            
-            // SQL query
-            String query = "SELECT COUNT(*) "
-                         + "FROM RAW_DATA_ING_METADATA "
-                         + "WHERE PROJ_ID = ? "
-                         + "AND DEPT_ID = ? "
-                         + "AND JOB_ID = ? "
-                         + "AND MODULE = ? "
-                         + "AND STATUS = ? "
-                         + "AND UPDATE_TSMP >= TO_DATE(?, 'DD-MON-YYYY HH24.MI.SS') "
-                         + "ORDER BY UPDATE_TSMP DESC";
-            
-            // Establish database connection
-            try (Connection connection = DriverManager.getConnection(url, username, password);
-                 PreparedStatement preparedStatement = connection.prepareStatement(query)) {
-                
-                // Set parameters for the query
-                preparedStatement.setString(1, "hadoop_pharmacy_prod");
-                preparedStatement.setString(2, "ICPplus");
-                preparedStatement.setString(3, "raw_ingestion");
-                preparedStatement.setString(4, "PO");
-                preparedStatement.setString(5, "C");
-                preparedStatement.setString(6, todayDate); // Use today's date with time set to 00.05.03
-                
-                // Execute the query
-                ResultSet resultSet = preparedStatement.executeQuery();
-                
-                // Process the result
-                if (resultSet.next()) {
-                    int count = resultSet.getInt(1);
-                    System.out.println("Count: " + count);
+            // Read filenames from the input file
+            Set<String> allFilenames = readFile(inputFile);
+
+            // Retrieve filenames from the SQL query
+            Set<String> sqlFilenames = fetchSQLFilenames(url, user, password, sqlQuery);
+
+            // Compare and get missing filenames
+            List<String> missingFilenames = new ArrayList<>();
+            for (String filename : allFilenames) {
+                if (!sqlFilenames.contains(filename)) {
+                    missingFilenames.add(filename);
                 }
             }
+
+            // Write missing filenames to the output file
+            writeFile(outputFile, missingFilenames);
+
+            System.out.println("Missing filenames have been written to: " + outputFile);
+
         } catch (Exception e) {
             e.printStackTrace();
+        }
+    }
+
+    /**
+     * Reads filenames from a file and stores them in a Set.
+     */
+    private static Set<String> readFile(String filePath) throws IOException {
+        Set<String> filenames = new HashSet<>();
+        try (BufferedReader reader = new BufferedReader(new FileReader(filePath))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                filenames.add(line.trim());
+            }
+        }
+        return filenames;
+    }
+
+    /**
+     * Fetches filenames from the database using JDBC.
+     */
+    private static Set<String> fetchSQLFilenames(String url, String user, String password, String sqlQuery) throws SQLException {
+        Set<String> filenames = new HashSet<>();
+        try (Connection connection = DriverManager.getConnection(url, user, password);
+             PreparedStatement preparedStatement = connection.prepareStatement(sqlQuery);
+             ResultSet resultSet = preparedStatement.executeQuery()) {
+
+            while (resultSet.next()) {
+                filenames.add(resultSet.getString("FILE_NAME"));
+            }
+        }
+        return filenames;
+    }
+
+    /**
+     * Writes missing filenames to an output file.
+     */
+    private static void writeFile(String filePath, List<String> filenames) throws IOException {
+        try (BufferedWriter writer = new BufferedWriter(new FileWriter(filePath))) {
+            for (String filename : filenames) {
+                writer.write(filename);
+                writer.newLine();
+            }
         }
     }
 }
