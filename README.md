@@ -1,25 +1,48 @@
--- Insert test data for different PROJ_IDs, JOB_IDs, and FILE_NAMEs
-INSERT INTO RAW_DATA_ING_METADATA (PROJ_ID, DEPT_ID, JOB_ID, TRACKING_ID, FILE_NAME, MODULE, STATUS, UPDATE_TSMP)
-VALUES ('hadoop_pharmacy_test_12272024', 'test12272024', 'raw_ingestion_12272024', 'test122720240', 'file_1.txt', 'PO', 'C', TO_TIMESTAMP('2024-12-26 00:10:00', 'YYYY-MM-DD HH24:MI:SS'));
+import java.io.BufferedWriter;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.List;
+import java.util.UUID;
 
-INSERT INTO RAW_DATA_ING_METADATA (PROJ_ID, DEPT_ID, JOB_ID, TRACKING_ID, FILE_NAME, MODULE, STATUS, UPDATE_TSMP)
-VALUES ('hadoop_pharmacy_test_12272024', 'test12272024', 'raw_ingestion_12272024', 'test122720241', 'file_2.txt', 'PO', 'C', TO_TIMESTAMP('2024-12-26 00:20:00', 'YYYY-MM-DD HH24:MI:SS'));
+public class FileRenameScriptGenerator {
 
-INSERT INTO RAW_DATA_ING_METADATA (PROJ_ID, DEPT_ID, JOB_ID, TRACKING_ID, FILE_NAME, MODULE, STATUS, UPDATE_TSMP)
-VALUES ('hadoop_pharmacy_test_12272024', 'test12272024', 'raw_ingestion_12272024', 'test122720242', 'file_3.txt', 'PO', 'C', TO_TIMESTAMP('2024-12-26 00:30:00', 'YYYY-MM-DD HH24:MI:SS'));
+    public static void createRenameScript(List<String> filenames, String outputFilePath) {
+        // Generate a dynamic batch ID
+        String batchId = generateBatchId();
+        // Generate a dynamic prefix using the batch ID and today's date
+        String prefix = generateDynamicPrefix(batchId);
 
-INSERT INTO RAW_DATA_ING_METADATA (PROJ_ID, DEPT_ID, JOB_ID, TRACKING_ID, FILE_NAME, MODULE, STATUS, UPDATE_TSMP)
-VALUES ('hadoop_pharmacy_test_12272024', 'test12272024', 'raw_ingestion_12272024', 'test122720243', 'file_4.txt', 'PO', 'C', TO_TIMESTAMP('2024-12-26 00:40:00', 'YYYY-MM-DD HH24:MI:SS'));
+        try (BufferedWriter writer = new BufferedWriter(new FileWriter(outputFilePath))) {
+            for (String filename : filenames) {
+                String newFilename = prefix + "_" + filename;
+                writer.write("mv " + filename + " " + newFilename);
+                writer.newLine();
+            }
+            System.out.println("Script written successfully to " + outputFilePath);
+        } catch (IOException e) {
+            System.err.println("Error writing to the file: " + e.getMessage());
+        }
+    }
 
-INSERT INTO RAW_DATA_ING_METADATA (PROJ_ID, DEPT_ID, JOB_ID, TRACKING_ID, FILE_NAME, MODULE, STATUS, UPDATE_TSMP)
-VALUES ('hadoop_pharmacy_test_12272024', 'test12272024', 'raw_ingestion_12272024', 'test122720244', 'file_5.txt', 'PO', 'C', TO_TIMESTAMP('2024-12-26 00:50:00', 'YYYY-MM-DD HH24:MI:SS'));
+    private static String generateBatchId() {
+        // Generate a unique batch ID (UUID or custom logic)
+        return "batch_" + UUID.randomUUID().toString().substring(0, 8);
+    }
 
--- Insert additional data for other jobs to simulate realistic data
-INSERT INTO RAW_DATA_ING_METADATA (PROJ_ID, DEPT_ID, JOB_ID, TRACKING_ID, FILE_NAME, MODULE, STATUS, UPDATE_TSMP)
-VALUES ('hadoop_pharmacy_test_12272024', 'test12272024', 'raw_ingestion_12272024', 'test122720245', 'file_6.txt', 'PO', 'C', TO_TIMESTAMP('2024-12-26 01:00:00', 'YYYY-MM-DD HH24:MI:SS'));
+    private static String generateDynamicPrefix(String batchId) {
+        // Get current date in mmddyyyy format
+        String currentDate = new SimpleDateFormat("MMddyyyy").format(new Date());
+        // Combine batchId and current date
+        return batchId + "_" + currentDate;
+    }
 
-INSERT INTO RAW_DATA_ING_METADATA (PROJ_ID, DEPT_ID, JOB_ID, TRACKING_ID, FILE_NAME, MODULE, STATUS, UPDATE_TSMP)
-VALUES ('hadoop_pharmacy_test_12272024', 'test12272024', 'raw_ingestion_12272024', 'test122720246', 'file_7.txt', 'PO', 'P', TO_TIMESTAMP('2024-12-26 01:10:00', 'YYYY-MM-DD HH24:MI:SS'));
+    public static void main(String[] args) {
+        // Example usage
+        List<String> filenames = List.of("file1.txt", "file2.txt", "file3.txt");
+        String outputFilePath = "rename_files.sh";
 
-INSERT INTO RAW_DATA_ING_METADATA (PROJ_ID, DEPT_ID, JOB_ID, TRACKING_ID, FILE_NAME, MODULE, STATUS, UPDATE_TSMP)
-VALUES ('hadoop_pharmacy_test_12272024', 'test12272024', 'raw_ingestion_12272024', 'test122720247', 'file_8.txt', 'PO', 'C', TO_TIMESTAMP('2024-12-26 01:20:00', 'YYYY-MM-DD HH24:MI:SS'));
+        createRenameScript(filenames, outputFilePath);
+    }
+}
