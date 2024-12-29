@@ -1,28 +1,53 @@
-import java.text.SimpleDateFormat;
-import java.util.Date;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.SQLException;
 
-public class FilePathFormatter {
-
-    public static String formatPath(String basePath) {
-        // Get today's date
-        Date today = new Date();
-        SimpleDateFormat dateFormat = new SimpleDateFormat("yyyyMMdd");
-        String formattedDate = dateFormat.format(today);
-
-        // Create the filename with today's date
-        String fileName = formattedDate + ".GG.txt";
-
-        // Combine base path and filename
-        if (!basePath.endsWith("/")) {
-            basePath += "/";
-        }
-        return basePath + fileName;
-    }
+public class JobParameterUpdater {
 
     public static void main(String[] args) {
-        // Example usage
-        String path = "/your/path/here";
-        String fullPath = formatPath(path);
-        System.out.println("Formatted Path: " + fullPath);
+        // Database connection details
+        String dbUrl = "jdbc:oracle:thin:@your_database_url:1521:your_db_service_name";
+        String dbUsername = "your_username";
+        String dbPassword = "your_password";
+
+        // SQL query to update the job parameter
+        String updateQuery = "UPDATE JOB_PARAMETER_DETAIL " +
+                             "SET PARAM_VAL = ? " +
+                             "WHERE JOB_ID = ? " +
+                             "AND PROJ_ID = ? " +
+                             "AND DEPT_ID = ? " +
+                             "AND parm_name = ?";
+
+        // Values to be updated
+        String paramVal = "/usr/local/edw/idl/edw_idl_ff/serial/main/manual_adhoc_ingestion";
+        String jobId = "raw_ingestion";
+        String projId = "hadoop_pharmacy_prod";
+        String deptId = "ICPlus";
+        String parmName = "srcPath";
+
+        try (Connection connection = DriverManager.getConnection(dbUrl, dbUsername, dbPassword);
+             PreparedStatement preparedStatement = connection.prepareStatement(updateQuery)) {
+
+            // Set the parameters for the prepared statement
+            preparedStatement.setString(1, paramVal);
+            preparedStatement.setString(2, jobId);
+            preparedStatement.setString(3, projId);
+            preparedStatement.setString(4, deptId);
+            preparedStatement.setString(5, parmName);
+
+            // Execute the update
+            int rowsUpdated = preparedStatement.executeUpdate();
+
+            if (rowsUpdated > 0) {
+                System.out.println("Job parameter updated successfully.");
+            } else {
+                System.out.println("No matching record found to update.");
+            }
+
+        } catch (SQLException e) {
+            System.err.println("Database operation failed: " + e.getMessage());
+            e.printStackTrace();
+        }
     }
 }
