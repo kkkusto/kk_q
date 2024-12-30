@@ -56,24 +56,3 @@ public class FileNameHandler {
         getFileNamesAndWriteToFile(projectId, deptId, jobId, module, outputFilePath);
     }
 }
-
-
-
-public static void deleteRows(String projectId, String deptId, String jobId, String module) {
-    String deleteQuery = "DELETE FROM RAW_DATA_ING_METADATA " +
-                         "WHERE PROJ_ID = ? AND DEPT_ID = ? AND JOB_ID = ? AND MODULE = ?";
-
-    try (Connection conn = DriverManager.getConnection(DB_URL, USER, PASSWORD);
-         PreparedStatement pstmt = conn.prepareStatement(deleteQuery)) {
-
-        pstmt.setString(1, projectId);
-        pstmt.setString(2, deptId);
-        pstmt.setString(3, jobId);
-        pstmt.setString(4, module);
-
-        int rowsDeleted = pstmt.executeUpdate();
-        System.out.println(rowsDeleted + " rows deleted successfully.");
-    } catch (SQLException e) {
-        e.printStackTrace();
-    }
-}
