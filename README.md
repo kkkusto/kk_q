@@ -1,58 +1,82 @@
-import java.io.BufferedWriter;
-import java.io.FileWriter;
-import java.io.IOException;
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.util.List;
+import java.util.*;
+import java.util.concurrent.TimeUnit;
 
-public class FileNameHandler {
+public class FilenameChecker {
 
-    private static final String DB_URL = "jdbc:mysql://<HOST>:<PORT>/<DB_NAME>";
-    private static final String USER = "<USERNAME>";
-    private static final String PASSWORD = "<PASSWORD>";
+    public static void main(String[] args) throws Exception {
+        // Example usage
+        String url = "jdbc:oracle:thin:@your-db-url"; // Replace with your DB URL
+        String username = "your-username";
+        String password = "your-password";
+        String sqlQuery = "SELECT FILE_NAME FROM YOUR_TABLE WHERE PROJECT_ID = ? AND DEPT_ID = ? AND JOB_ID = ?"; // Replace with your query
 
-    public static void getFileNamesAndWriteToFile(String projectId, String deptId, String jobId, String module, String outputFilePath) {
-        String selectQuery = "SELECT FILE_NAME FROM RAW_DATA_ING_METADATA " +
-                             "WHERE PROJ_ID = ? AND DEPT_ID = ? AND JOB_ID = ? AND MODULE = ?";
+        List<String> filenamesToCheck = Arrays.asList("file1.txt", "file2.txt", "file3.txt");
 
-        try (Connection conn = DriverManager.getConnection(DB_URL, USER, PASSWORD);
-             PreparedStatement pstmt = conn.prepareStatement(selectQuery);
-             BufferedWriter writer = new BufferedWriter(new FileWriter(outputFilePath))) {
+        checkFilenamesInDatabase(url, username, password, sqlQuery, filenamesToCheck);
 
-            pstmt.setString(1, projectId);
-            pstmt.setString(2, deptId);
-            pstmt.setString(3, jobId);
-            pstmt.setString(4, module);
+        System.out.println("All filenames are found in the database!");
+    }
 
-            ResultSet rs = pstmt.executeQuery();
+    public static void checkFilenamesInDatabase(
+            String url,
+            String username,
+            String password,
+            String sqlQuery,
+            List<String> filenamesToCheck) throws Exception {
 
-            while (rs.next()) {
-                String fileName = rs.getString("FILE_NAME");
-                writer.write(fileName);
-                writer.newLine();
+        Set<String> filenamesFound = new HashSet<>();
+
+        while (true) {
+            // Fetch filenames from the database using the provided function
+            Set<String> filenamesInDb = fetchSQLFilenames(url, username, password, sqlQuery);
+
+            // Add found filenames to the set
+            filenamesFound.addAll(filenamesInDb);
+
+            // Check if all filenames in the list are found
+            if (filenamesFound.containsAll(filenamesToCheck)) {
+                break;
             }
 
-            System.out.println("Filenames have been written to " + outputFilePath);
-
-        } catch (SQLException e) {
-            System.err.println("Database error: " + e.getMessage());
-            e.printStackTrace();
-        } catch (IOException e) {
-            System.err.println("File writing error: " + e.getMessage());
-            e.printStackTrace();
+            // Wait for 5 minutes before the next check
+            System.out.println("Not all filenames found. Checking again in 5 minutes...");
+            TimeUnit.MINUTES.sleep(5);
         }
     }
 
-    public static void main(String[] args) {
-        String projectId = "test_hadoop_pharmacy_test_12272024";
-        String deptId = "test12272024";
-        String jobId = "raw_ingestion_12272024";
-        String module = "RDI_AUTOMATION";
-        String outputFilePath = "output_filenames.txt"; // Specify the output file path
+    private static Set<String> fetchSQLFilenames(
+            String url,
+            String username,
+            String password,
+            String sqlQuery) throws Exception {
 
-        getFileNamesAndWriteToFile(projectId, deptId, jobId, module, outputFilePath);
+        Set<String> filenames = new HashSet<>();
+        
+        try {
+            Class.forName("oracle.jdbc.driver.OracleDriver");
+
+            try (Connection connection = DriverManager.getConnection(url, username, password);
+                 PreparedStatement preparedStatement = connection.prepareStatement(sqlQuery)) {
+
+                // Set parameters for the query (example placeholders, update as necessary)
+                preparedStatement.setString(1, "projectId");
+                preparedStatement.setString(2, "deptId");
+                preparedStatement.setString(3, "jobId");
+                preparedStatement.setString(4, "POM");
+                preparedStatement.setString(5, "CN");
+                preparedStatement.setString(6, "todayDate"); // Example date
+
+                // Execute the query
+                ResultSet resultSet = preparedStatement.executeQuery();
+                while (resultSet.next()) {
+                    filenames.add(resultSet.getString("FILE_NAME"));
+                }
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+            System.out.println("Error fetching filenames from the database.");
+        }
+
+        return filenames;
     }
 }
